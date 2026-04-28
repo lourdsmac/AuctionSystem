@@ -78,6 +78,27 @@ Request { corr=abc }
             └──► Outbound HTTP to Stripe { corr=abc }
 ```
 
+### Multi-hop diagram (microservices / payment call)
+
+When one user action spans several services, the **same** correlation id must ride on every hop — otherwise log lines cannot be joined.
+
+```
+  Edge / Gateway          Payments API          Provider (Stripe)        Worker (reconciliation)
+       │                        │                        │                         │
+  corr=abc in header      corr=abc in logs         (provider request id        corr=abc in job
+       │                        │                  may differ — map it)        payload
+       ├───────────────────────►│                        │                         │
+       │                        ├───────────────────────►│                         │
+       │                        │◄─────────────────────┤                         │
+       │                        ├──────────────────────────────────────────────────►│
+       │                        │                        │                         │
+       ▼                        ▼                        ▼                         ▼
+   access log              app log line            dashboard / support         batch log line
+   (same corr search)      (same corr search)        reference ids            (same corr search)
+```
+
+**REAL WORLD EXAMPLE:** OpenTelemetry **trace_id** + span parent/child links formalize this; plain `X-Correlation-ID` is the minimal teaching step.
+
 **This repo:** **Not** implemented as middleware — easy future addition:
 
 ```csharp

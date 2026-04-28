@@ -4,6 +4,15 @@ End-to-end sample that contrasts **Server-Sent Events (SSE)** with **WebSockets*
 
 **Extended handbook (engineering + system-design deep dives):** see **[docs/README.md](docs/README.md)** — includes onboarding, interview-style explanations (idempotency, JWT, payments, CORS), and an honest matrix of **implemented vs conceptual** topics.
 
+### Where the code lives (SSE vs WebSocket)
+
+| | **SSE** | **WebSocket** |
+|---|--------|---------------|
+| **Route** | `GET /api/auction/sse` | `/ws/auction` (`ws://…` or proxied) |
+| **Server** | `src/Api/Controllers/AuctionController.cs` → `GetSse` | `src/Api/AuctionWebSocketEndpoint.cs` + `Program.cs` → `MapAuctionWebSocket()` |
+| **Broadcast** | _(per-connection stream only; no shared “WS manager”)_ | `src/Infrastructure/WebSockets/WebSocketConnectionManager.cs` + `AuctionWebSocketNotifier.cs` |
+| **UI** | `frontend/src/App.tsx` → `SsePanel` (`EventSource`) | `WebSocketPanel` (`WebSocket`) |
+
 ---
 
 ## Architecture (text diagram)

@@ -180,16 +180,47 @@ Retain longer for audit in regulated stacks—maybe move to archive table.
 
 ## Relationship diagram (payments world)
 
+### Compact FK view
+
 ```
  users 1 ─── * payments
  users 1 ─── * user_sessions
  users 1 ─── * idempotency_records
 ```
 
-Auction demo:
+### Expanded ER-style (conceptual boxes + cardinalities)
+
+```
+ ┌────────────────┐                  ┌─────────────────┐
+ │     users       │                  │ user_sessions    │
+ │ id (PK)         │──<───────────────│ user_id (FK)     │
+ │ email UNIQUE    │   1          * │ refresh_hash     │
+ │ password_hash   │                  │ revoked_at       │
+ └────────┬─────────┘                  └─────────────────┘
+          │
+          │ 1
+          │
+          │ *
+ ┌────────▼─────────┐               ┌──────────────────────────┐
+ │ payments          │               │ idempotency_records       │
+ │ id (PK)           │               │ user_id (FK) ────────────┐
+ │ user_id (FK)      │               │ idempotency_key (UNIQUE) │
+ │ amount_minor INT  │               │ request_hash BYTEA       │
+ │ status            │               │ response_json JSONB      │
+ │ provider_ref      │               │ pipeline_status ENUM     │
+ └──────────────────┘               └──────────────────────────┘
+          ▲                                        │
+          └──────── same user_id FK as payments ────┘ (typical)
+```
+
+Auction demo (this repo — single table only):
 
 ```
 AuctionItems singleton row (conceptually single global auction teaching device)
+
+┌───────────────────────┐
+│      AuctionItems     │  (no FK to users in current code)
+└───────────────────────┘
 ```
 
 ---

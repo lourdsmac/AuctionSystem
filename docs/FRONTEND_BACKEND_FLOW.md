@@ -4,6 +4,20 @@ This document ties **browser behavior**, **SSE (`EventSource`)**, **WebSockets**
 
 ---
 
+## Navigation: SSE vs WebSocket in this repo
+
+| Layer | SSE (read-only feed) | WebSocket (bids + broadcast) |
+|-------|----------------------|------------------------------|
+| **Browser API** | `EventSource` | `WebSocket` |
+| **File** | `frontend/src/App.tsx` — **`SsePanel`** | **`WebSocketPanel`** |
+| **URLs** | From `httpUrl('/api/auction/sse')` in `frontend/src/apiConfig.ts` | From `webSocketUrl('/ws/auction')` |
+| **Backend** | `src/Api/Controllers/AuctionController.cs` — **`GetSse`** | `src/Api/AuctionWebSocketEndpoint.cs` — mapped in **`Program.cs`** |
+| **Shared state** | Reads via `AuctionService.GetCurrentAsync` | Writes via `AuctionService.PlaceBidAsync` + broadcast |
+
+Everything else in this doc elaborates behavior; use the table above when you only need **file names**.
+
+---
+
 ## Architecture slice (implemented)
 
 ```
@@ -18,6 +32,67 @@ This document ties **browser behavior**, **SSE (`EventSource`)**, **WebSockets**
 │  Serilog ▸ CORS ▸ WebSockets ▸ Controllers │
 │  MapAuctionWebSocket()                     │
 └────────────────────────────────────────────┘
+```
+
+### Sequence diagram — Vite dev proxy (optional path)
+
+When `VITE_API_BASE` is **unset**, the browser talks to **the Vite dev origin**; Vite forwards `/api` and `/ws` to the .NET process:
+
+```
+  React (localhost:5173)          Vite dev server              ASP.NET (localhost:5088)
+          |                                |                                |
+          | GET /api/auction/sse           |                                |
+          |------------------------------->| GET http://localhost:5088/... |
+          |                                |------------------------------->|
+          |                                |<-------------------------------|
+          |<-------------------------------| streamed chunks                |
+          |                                |                                |
+```
+
+When `VITE_API_BASE=http://localhost:5088` is **set**, requests skip the proxy and go **directly** to Kestrel (CORS must allow `5173`).
+
+---
+
+### Sequence diagram — SSE (`EventSource`): read-only stream
+
+Vertical time flows **down**. The HTTP connection stays open; only **server → client** messages appear on the wire for the **event data** (browser does not send a body on that connection).
+
+```
+time │
+     ▼
+Browser (SsePanel)                      Server (AuctionController.GetSse)
+   │                                              │
+   │ ─────── GET /api/auction/sse ─────────────► │
+   │ ◄────── 200 text/event-stream ────────────  │  (socket stays open)
+   │ ◄────── ": sse-connected\\n\\n" ────────────  │
+   │                                              │
+   │ ◄────── data: { price: 100,...}\\n\\n ─────  │  ~0s (after first tick)
+   │          ... ~2s sleep on server ...         │
+   │ ◄────── data: { ... }\\n\\n ───────────────  │
+   │          ... repeats ...                     │
+   │                                              │
+   │ ─── user navigates away / disconnect ────► │  CancellationToken fires
+   │                                              │  loop ends, logs disconnect
+```
+
+---
+
+### Sequence diagram — WebSocket bid + broadcast to two tabs
+
+```
+time │
+     ▼
+ Tab A (bidder)        Tab B (observer)       Server                DB / Notifier
+   │                        │                     │                        │
+   │ WS connect             │ WS connect          │                        │
+   │ ─────────────────────► │ ──────────────────► │ accept both            │
+   │ ◄ connected snapshot   │ ◄ connected snapshot │                        │
+   │                        │                     │                        │
+   │ send {bidAmount:110}   │                     │                        │
+   │ ──────────────────────────────────────────► │ PlaceBidAsync          │
+   │                        │                     │ ─── persist ─────────► │
+   │                        │ ◄ broadcast ─────── │ ◄────────────────────  │
+   │ ◄ auction_update ──────│◄ auction_update ────│ (both tabs get JSON)   │
 ```
 
 ---

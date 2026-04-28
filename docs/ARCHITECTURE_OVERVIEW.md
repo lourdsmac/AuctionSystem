@@ -4,6 +4,20 @@ This document explains **Clean Architecture** as used in real backends, maps it 
 
 ---
 
+## SSE vs WebSocket — which file is which?
+
+| Mechanism | Endpoint | Primary code file(s) |
+|-----------|----------|----------------------|
+| **REST snapshot** | `GET /api/auction` | `src/Api/Controllers/AuctionController.cs` (GET without `sse`) |
+| **SSE stream** | `GET /api/auction/sse` | Same controller → **`GetSse`** (`text/event-stream`, `BodyWriter`, `PeriodicTimer`) |
+| **WebSocket** | `WS /ws/auction` | **`src/Api/AuctionWebSocketEndpoint.cs`** (handshake, receive loop, JSON bids) — registered in **`src/Api/Program.cs`** via **`MapAuctionWebSocket()`** |
+
+**Shared logic:** `AuctionService` + `AuctionItem` domain rules. **WebSocket-only infrastructure:** `WebSocketConnectionManager`, `AuctionWebSocketNotifier` (`IAuctionRealtimeNotifier`). SSE does **not** use those classes — it only **reads** current state and writes bytes to the HTTP response.
+
+**Frontend split:** `frontend/src/App.tsx` — **`SsePanel`** vs **`WebSocketPanel`** (separate components, separate transport).
+
+---
+
 ## Why structure code at all?
 
 Small scripts can live in one file. Production systems last years, get new requirements, and move between teams. Structure exists so that:
@@ -43,6 +57,46 @@ Think of your system as an **onion**:
 ```
 
 **Dependency rule (the important part):** Dependencies point **inward**. The **Domain** knows nothing about ASP.NET, SQL dialects, or React. The **Api** knows about HTTP, but it should not embed pricing rules.
+
+### Visual: dependency direction (compile-time references)
+
+In a Clean Architecture solution, **outer** projects reference **inner** abstractions — not the reverse.
+
+```
+                    ┌─────────────┐
+                    │     Api     │──── references ────┐
+                    └──────┬──────┘                    │
+                           │                           ▼
+                    ┌──────▼──────┐            ┌───────────────┐
+                    │Infrastructure│───────────►│  Application  │
+                    └──────┬──────┘            │  (+ Domain)   │
+                           │                   └───────┬───────┘
+                           │                           │
+                           └──────────────────────────►│   Domain      │
+                                                       │  (no deps on   │
+                                                       │   outer layers)│
+                                                       └───────────────┘
+```
+
+**Rules in one glance:**
+
+- `Domain` → **zero** project references to Api/Infrastructure.  
+- `Application` → references `Domain` only (plus generic abstractions).  
+- `Infrastructure` → implements interfaces **defined in Application** (and uses `Domain` entities).  
+- `Api` → wires DI, hosts HTTP + WebSockets, references `Application` + `Infrastructure` for composition root.
+
+### Visual: runtime call path vs compile-time dependency
+
+Compile-time: **Infrastructure** depends on **Application** interfaces.  
+Runtime: **Api** creates `EfAuctionRepository : IAuctionRepository` and injects it — **dependency inversion**.
+
+```
+  At runtime (simplified):
+
+      Api  ──creates──►  EfAuctionRepository  ──implements──►  IAuctionRepository
+        │                                                        ▲
+        └──── injects IAuctionRepository into AuctionService ─────┘
+```
 
 ---
 
@@ -158,6 +212,34 @@ Browser (JSON bid)           Api                        Application             
 ```
 
 **WHY THIS MATTERS:** WebSocket handlers are often **Fat** in tutorials. Here, **JSON parsing stays at the edge**; **money rules stay in Domain**.
+
+---
+
+## Additional diagram: SSE tick loop vs request/response
+
+`GET /api/auction` returns **once** and the TCP connection closes (typical). `GET /api/auction/sse` keeps the **same** connection open:
+
+```
+REST (GET /api/auction):
+
+  Client                         Server
+    |                               |
+    |-------- request ------------->|
+    |<------- 200 JSON ------------|      connection usually ends here
+    |                               |
+
+SSE (GET /api/auction/sse):
+
+  Client                         Server
+    |                               |
+    |-------- request ------------->|
+    |       (connection stays OPEN) |
+    |<------- chunk: comment ------|
+    |<------- chunk: data json ----|
+    |               ...wait 2s...   |
+    |<------- chunk: data json ----|
+    |               ...             |        until CancellationToken fires
+```
 
 ---
 

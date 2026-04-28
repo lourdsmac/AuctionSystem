@@ -14,6 +14,62 @@ A browser page loaded from `https://app.example.com` running JavaScript **cannot
 
 ---
 
+## Diagram: who enforces what?
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Browser tab (Origin A)                                                       │
+│  ┌─────────────────┐                                                         │
+│  │ Your SPA JS    │ ──fetch/XHR──► Can READ response ONLY if API returns      │
+│  │ fetch(api B)    │                   Access-Control-Allow-Origin matching A │
+│  └─────────────────┘                   (or credentialed rules satisfied)       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Terminal: curl https://api B/v1/foo                                          │
+│                                                                              │
+│   curl does NOT consult CORS — server auth still applies                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Diagram: full preflight dance (cross-origin SPA → API)
+
+Swimlanes: **Browser**, **your API**. Time flows downward.
+
+```
+STEP 1 — preflight (automatic, browser-generated)
+
+  Browser                                    API
+     |                                         |
+     |  OPTIONS /api/payments                 |
+     |  Origin: http://localhost:5173           |
+     |  Access-Control-Request-Method: POST   |
+     |  Access-Control-Request-Headers: ...   |
+     |---------------------------------------->|
+     |                                         |  CORS middleware / endpoint
+     |  204 + Access-Control-Allow-Origin: ... |
+     |  + Allow-Methods / Allow-Headers       |
+     |<----------------------------------------|
+     |                                         |
+
+STEP 2 — real request (only if preflight OK)
+
+     |  POST /api/payments + JSON body         |
+     |  Origin: http://localhost:5173           |
+     |---------------------------------------->|
+     |                                         |  Controller / pipeline
+     |  200 + payload + Allow-Origin echo      |
+     |<----------------------------------------|
+     |  JS can read JSON (same-origin policy   |
+     |   satisfied for cross-origin read)      |
+```
+
+**Edge case:** Simple `GET` **may** skip OPTIONS — browser still sends `Origin` on many cross-origin GETs; caching rules differ by browser version.
+
+---
+
 ## Simple vs “non-simple” requests
 
 ### Simple request (sketch)

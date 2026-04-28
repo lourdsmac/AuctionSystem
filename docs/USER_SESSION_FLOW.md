@@ -77,12 +77,26 @@ Host: api.example.com
 Cookie: refresh=opaquevalue
 ```
 
-Server:
+### Sequence diagram — refresh issuing new access JWT
+
+```
+  Browser (SPA)               Auth API `/auth/refresh`          user_sessions table
+      │                                │                                │
+      │ POST + HttpOnly cookie ───────►│                                │
+      │                                │ hash(refresh) lookup            │
+      │                                │───────────────────────────────►│
+      │                                │◄──────── row + user_id ─────── │
+      │                                │ mint new access JWT (short)     │
+      │ 200 { accessToken } (JSON)     │ optional: rotate refresh ──────►│ UPDATE hash
+      │◄────────────────────────────── │                                │
+```
+
+Server (same as diagram, step-by-step):
 
 1. Hash incoming refresh  
 2. Lookup row by user + hash match (or lookup by session id if you structure differently)  
 3. If valid + not revoked + not expired → mint **new access JWT**  
-4. Optional **refresh rotation:** issue new refresh, invalidate old (detect reuse = possible theft)
+4. Optional **refresh rotation:** issue new refresh, invalidate old (detect reuse = possible theft)  
 
 **Rotation REAL WORLD EXAMPLE:** Auth0, Okta, Cognito support patterns like this — exact semantics vary.
 

@@ -4,6 +4,51 @@ Idempotency is one of the **most interview-tested** ideas in backend and payment
 
 ---
 
+## Decision flow (first request vs duplicate)
+
+Use this as a mental **state machine** when designing or reading payment APIs.
+
+```
+                    POST /payments
+                    Idempotency-Key: K
+                    Body: B
+                          │
+                          ▼
+                 ┌─────────────────┐
+                 │ Hash body → H   │
+                 └────────┬────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │ Row (user, K) exists? │
+              └───────────┬───────────┘
+                    │                    │
+                   NO                   YES
+                    │                    │
+                    ▼                    ▼
+         ┌──────────────────┐   ┌────────────────────┐
+         │ INSERT InProgress│   │ Stored hash == H? │
+         │ (unique success) │   └─────────┬──────────┘
+         └────────┬─────────┘             │        │
+                  │                      YES      NO
+                  │                       │        │
+                  ▼                       ▼        ▼
+         ┌──────────────────┐    ┌────────────┐  ┌─────────────┐
+         │ Call provider    │    │ Return     │  │ 409 Conflict│
+         │ Commit payment   │    │ CACHED     │  │ (bad client)│
+         │ Store response   │    │ response   │  └─────────────┘
+         └────────┬─────────┘    └────────────┘
+                  │
+                  ▼
+         ┌──────────────────┐
+         │ 200 + body (first)│
+         └──────────────────┘
+```
+
+**WHY THIS MATTERS:** The **first** path touches money; the **duplicate** path should be a **database read** of the stored HTTP snapshot.
+
+---
+
 ## What “idempotent” means
 
 An operation is **idempotent** if doing it **once** or **many times** produces the **same observable outcome** (for that operation’s contract).

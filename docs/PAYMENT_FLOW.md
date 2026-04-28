@@ -29,6 +29,33 @@ This document describes a **typical production payment lifecycle** through an AP
 
 ---
 
+## Sequence diagram — happy path (single charge, eventual response)
+
+Vertical time flows **down**. Dotted lines indicate **optional** provider-internal steps.
+
+```
+  Client SPA          API Ingress        Idempotency       PaymentSvc        Provider        Postgres
+     │                    │                  │                  │                 │                │
+     │ POST /payments     │                  │                  │                 │                │
+     │ Idempotency-Key K  │                  │                  │                 │                │
+     │──────────────────>│                  │                  │                 │                │
+     │                    │ insert row K     │                  │                 │                │
+     │                    │ InProgress       │                  │                 │                │
+     │                    │──────────────────────────────────────────────────────────────────────>│
+     │                    │                  │                  │ stripe charge   │                │
+     │                    │                  │                  │───────────────>│                │
+     │                    │                  │                  │<─ pi_xxx ok ───│                │
+     │                    │                  │                  │ update row +   │                │
+     │                    │                  │                  │ idempotency OK │                │
+     │                    │                  │                  │───────────────>│                │
+     │ 200 + JSON body    │                  │                  │                 │                │
+     │<───────────────────│                  │                  │                 │                │
+```
+
+If the **network drops** after charge but before the client sees `200`, the **same** `Idempotency-Key` retry must land in the **replay** branch (no second charge) — see `IDEMPOTENCY_DEEP_DIVE.md`.
+
+---
+
 ## Actors
 
 | Actor | Role |

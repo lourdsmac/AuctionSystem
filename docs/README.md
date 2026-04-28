@@ -29,6 +29,32 @@ See **Feature matrix** below so you never confuse “documented pattern” with 
 
 ---
 
+## Where SSE vs WebSocket is implemented (navigation)
+
+Use this table when you’re lost in the tree: **SSE** and **WebSocket** use **different routes, different files, different browser APIs**. They only share **business state** through `AuctionService` and the EF `AuctionItem` row.
+
+| | **SSE (one-way: server → browser)** | **WebSocket (two-way)** |
+|---|-------------------------------------|-------------------------|
+| **HTTP / URL** | Long-lived `GET` **`/api/auction/sse`** | Upgrade on **`/ws/auction`** (scheme `ws:` / `wss:`) |
+| **Backend entry** | `src/Api/Controllers/AuctionController.cs` → **`GetSse`** | `src/Api/AuctionWebSocketEndpoint.cs` → **`MapAuctionWebSocket`** (invoked from **`Program.cs`**) |
+| **What it does** | Streams `text/event-stream` chunks every ~2s; calls **`AuctionService.GetCurrentAsync`** only | Accepts socket, sends initial `connected` JSON, reads **`{ "bidAmount": number }`**, calls **`AuctionService.PlaceBidAsync`**, then **broadcasts** to all sockets |
+| **“Push to all clients”** | N/A — **each** SSE connection is its **own** GET; server writes that response only | **`WebSocketConnectionManager`** + **`AuctionWebSocketNotifier`** fan out JSON to every open WebSocket |
+| **Application** | `AuctionService` (read path) | `AuctionService` (write path + triggers notifier) |
+| **Infrastructure unique to channel** | _(none — streaming is in the controller)_ | `WebSocketConnectionManager.cs`, `AuctionWebSocketNotifier.cs` |
+| **Frontend** | `frontend/src/App.tsx` → **`SsePanel`**, `new EventSource(httpUrl('/api/auction/sse'))` | **`WebSocketPanel`**, `new WebSocket(webSocketUrl('/ws/auction'))` |
+
+**What is shared (both channels):**
+
+- **Domain:** `src/Domain/AuctionItem.cs` (bid rules live here).  
+- **Application:** `src/Application/Services/AuctionService.cs` — REST + SSE read snapshots; WebSocket bids mutate and call **`IAuctionRealtimeNotifier`**.  
+- **Persistence:** `src/Infrastructure/Repositories/EfAuctionRepository.cs`, `AppDbContext`.
+
+**Wire-up (see once, remember):** `src/Api/Program.cs` registers CORS, **`UseWebSockets`**, **`MapControllers()`** (SSE lives under the controller), then **`MapAuctionWebSocket()`** (WS route). SSE is **not** registered in `Map` — it’s **`[HttpGet("sse")]`** on `AuctionController`.
+
+Deeper walkthrough: **`FRONTEND_BACKEND_FLOW.md`** and diagrams below in this file.
+
+---
+
 ## Feature matrix: this repo vs. handbook chapters
 
 | Capability | In this repo’s code? | Where to learn |
@@ -94,6 +120,84 @@ See **Feature matrix** below so you never confuse “documented pattern” with 
                           │ In-memory EF store   │
                           │ (single auction row) │
                           └──────────────────────┘
+```
+
+### Detailed flow diagrams (SSE vs WebSocket vs REST)
+
+These complement the box diagram above: they show **message order** and **who talks when**.
+
+#### A) One-shot REST snapshot — `GET /api/auction`
+
+```
+  Browser                Kestrel / Controller        AuctionService           Repository / DB
+    |                            |                        |                        |
+    |  GET /api/auction          |                        |                        |
+    |--------------------------->|                        |                        |
+    |                            |  GetCurrentAsync()     |                        |
+    |                            |----------------------->|                        |
+    |                            |                        |  snapshot read         |
+    |                            |                        |----------------------->|
+    |                            |                        |<-----------------------|
+    |                            |  200 + JSON DTO        |                        |
+    |                            |<-----------------------|                        |
+    |  response body (closes)    |                        |                        |
+    |<---------------------------|                        |                        |
+    |                            |                        |                        |
+```
+
+#### B) SSE — one long HTTP response, ticks every ~2s (`GetSse`)
+
+`CancellationToken` fires when the tab closes or the connection drops — the loop stops cooperatively.
+
+```
+  Browser (EventSource)      AuctionController.GetSse           AuctionService           Notes
+    |                                |                                |                 |
+    |  GET /api/auction/sse          |                                |                 | single HTTP request
+    |----------------------------->  |                                |                 | stays open
+    |                                |  DisableBuffering + headers    |                 |
+    |  < text/event-stream chunks    |                                |                 |
+    |<----------------------------   |  ": sse-connected\n\n"         |                 |
+    |                                |                                |                 |
+    |         ... every 2s ...       |                                |                 |
+    |  < data: {json}\n\n           |  WaitForNextTickAsync(ct)      |                 |
+    |<----------------------------   |--------------------------->    | GetCurrentAsync |
+    |                                |  WriteAsync + Flush (ct)       |                 |
+    |                                |                                |                 |
+    |  user closes tab ──────────────┼────────────────────────────────┼────────────────> RequestAborted
+    |                                |  OperationCanceledException    |                 | timer + writes stop
+    |                                |  (catch → log disconnect)        |                 |
+```
+
+#### C) WebSocket — connect, then many bidirectional frames
+
+```
+  Tab A (bidder)           API /ws/auction              AuctionService        All WS clients (A, B, C)
+    |                               |                         |                         |
+    |  HTTP Upgrade ─────────────>  |                         |                         |
+    |  < 101 Switching Protocols    |                         |                         |
+    |  < {type:connected,...} (text) |                         |                         |
+    |                               |                         |                         |
+    |  send {"bidAmount":120} ───> | PlaceBidAsync           |                         |
+    |                               |------------------------>|                         |
+    |                               |  persist + notifier     | broadcast JSON -------->| Tab A,B,C receive
+    |  < auction_update ───────────|                         |                         | auction_update
+    |                               |                         |                         |
+```
+
+#### D) Middleware / pipeline order (incoming HTTP & WS upgrade)
+
+```
+Inbound request
+       │
+       ▼
+┌──────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐
+│ Serilog      │──► │ UseWebSockets│──► │ UseCors     │──► │ MapControllers          │
+│ request log  │    │              │    │ Frontend    │    │ GET /api/auction,...    │
+└──────────────┘    └──────┬───────┘    └─────────────┘    └─────────────────────────┘
+                            │
+               path /ws/*   │  (WebSocket handshake only on matching branch)
+                            ▼
+                   Map("/ws/auction")  →  AcceptWebSocketAsync → handler loop
 ```
 
 ---
@@ -285,6 +389,7 @@ Treat them as **what you build next** (or what your next job’s codebase contai
 
 | Doc | Purpose |
 |-----|---------|
+| **[This README — SSE vs WebSocket map](#where-sse-vs-websocket-is-implemented-navigation)** | **Which files implement SSE vs WebSocket (quick lookup)** |
 | [ARCHITECTURE_OVERVIEW.md](./ARCHITECTURE_OVERVIEW.md) | Clean Architecture in this repo and in production |
 | [IDEMPOTENCY_DEEP_DIVE.md](./IDEMPOTENCY_DEEP_DIVE.md) | Idempotency-Key, hashing, duplicate requests |
 | [PAYMENT_FLOW.md](./PAYMENT_FLOW.md) | Payment pipeline and why duplicates cost money |
@@ -302,13 +407,14 @@ Treat them as **what you build next** (or what your next job’s codebase contai
 
 ## Suggested learning path
 
-1. `ARCHITECTURE_OVERVIEW.md` — orient in the codebase.  
-2. `FRONTEND_BACKEND_FLOW.md` — SSE + WS in the browser — **this repo**.  
-3. `CORS_DEEP_DIVE.md` — why localhost:5173 → localhost:5088 needs config.  
-4. `DATABASE_DESIGN.md` — tiny real schema vs “payments” textbook schema.  
-5. `IDEMPOTENCY_DEEP_DIVE.md` → `PAYMENT_FLOW.md` → `ERROR_HANDLING_AND_RETRIES.md` — **payments interview block**.  
-6. `AUTHENTICATION_JWT_DEEP_DIVE.md` → `USER_SESSION_FLOW.md` — **identity interview block**.  
-7. `API_HEADERS_AND_SECURITY.md` + `RATE_LIMITING_DEEP_DIVE.md` + `DEBUGGING_AND_OBSERVABILITY.md` — **ops and hardening block**.
+1. **[SSE vs WebSocket file map](#where-sse-vs-websocket-is-implemented-navigation)** (this README) — know where code lives.  
+2. `ARCHITECTURE_OVERVIEW.md` — orient in the codebase.  
+3. `FRONTEND_BACKEND_FLOW.md` — SSE + WS in the browser — **this repo**.  
+4. `CORS_DEEP_DIVE.md` — why localhost:5173 → localhost:5088 needs config.  
+5. `DATABASE_DESIGN.md` — tiny real schema vs “payments” textbook schema.  
+6. `IDEMPOTENCY_DEEP_DIVE.md` → `PAYMENT_FLOW.md` → `ERROR_HANDLING_AND_RETRIES.md` — **payments interview block**.  
+7. `AUTHENTICATION_JWT_DEEP_DIVE.md` → `USER_SESSION_FLOW.md` — **identity interview block**.  
+8. `API_HEADERS_AND_SECURITY.md` + `RATE_LIMITING_DEEP_DIVE.md` + `DEBUGGING_AND_OBSERVABILITY.md` — **ops and hardening block**.
 
 ---
 

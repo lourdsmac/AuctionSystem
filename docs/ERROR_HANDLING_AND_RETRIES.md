@@ -1,6 +1,34 @@
 # Error handling and retries — networks lie, clocks skew, humans double-tap
 
-Systems fail openly—TCP timeouts restart flows, VMs vanish mid-request, GPUs overheat. This handbook-style doc classifies failures, explains naive retries creating duplicate side effects, and contrasts **payments + idempotent APIs** versus **this auction demo**.
+Systems fail openly—TCP timeouts restart flows, VMs vanish mid-request, GPUs overheat. This handbook-style doc classifies failures, explains naive retries creating duplicate side effects, and contrasts **payments + idempotent APIs** versus **this auction demo`.
+
+---
+
+## Master diagram — retry safety (mental model)
+
+```
+                    ┌───────────────────────────────────────┐
+                    │ Is the HTTP method + path "safe"       │
+                    │ to blindly retry?                     │
+                    └───────────────────┬───────────────────┘
+                                        │
+                        ┌───────────────┴───────────────┐
+                        │                               │
+                       YES                              NO
+                        │                               │
+                        ▼                               ▼
+              ┌──────────────────┐           ┌──────────────────────┐
+              │ Typical: GET     │           │ POST /payments etc. │
+              │ Retry w/ backoff  │           │ Danger: duplicate $.  │
+              │ is often OK       │           └──────────┬────────────┘
+              └──────────────────┘                      │
+                                                         ▼
+                                            ┌────────────────────────┐
+                                            │ Needs Idempotency-Key │
+                                            │ + stored response DB   │
+                                            │ (or reconcile w/ PSP) │
+                                            └────────────────────────┘
+```
 
 ---
 
