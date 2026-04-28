@@ -217,7 +217,9 @@ Browser (JSON bid)           Api                        Application             
 
 ---
 
-## Additional diagram: SSE tick loop vs request/response
+## Diagrams: SSE tick loop & WebSocket listen loop vs request/response
+
+### SSE tick loop vs one-shot request/response (`GET /api/auction` vs `GET /api/auction/sse`)
 
 `GET /api/auction` returns **once** and the TCP connection closes (typical). `GET /api/auction/sse` keeps the **same** connection open:
 
@@ -242,6 +244,42 @@ SSE (GET /api/auction/sse):
     |<------- chunk: data json ----|
     |               ...             |        until CancellationToken fires
 ```
+
+### Additional diagram: WebSocket **listen loop** vs request/response
+
+**Classic HTTP** is **one request → one response** per round-trip (then the connection may be reused for an unrelated next request, but each exchange is still request/response-shaped).
+
+**WebSocket** replaces that pattern **after** the upgrade: the **same** connection stays open, and on the server **`AuctionWebSocketEndpoint.ListenLoop`** spins roughly like “**wait for a frame → handle it → repeat**” — each iteration is one **`ReceiveAsync`** wakeup (analogous to a “tick” waiting for work), not a new HTTP request line.
+
+```
+REST (typical one-shot — e.g. GET /api/auction):
+
+  Client                         Server
+    |                               |
+    |-------- request ------------->|
+    |<------- 200 + body -----------|     one response, then done for this exchange
+
+WebSocket (this repo: /ws/auction, after 101 Switching Protocols):
+
+  Client                         Server (ListenLoop + sends)
+    |                               |
+    |-------- HTTP Upgrade -------->|  AcceptWebSocketAsync
+    |<------- 101 Switching --------|
+    |                               |
+    |<------- text frame            |  SendCurrentState ("connected" JSON)
+    |     (connected snapshot)     |
+    |                               |
+    |······ same long-lived socket ·······  ReceiveAsync blocks until data or close
+    |                               |
+    |-------- text frame            |  one ListenLoop "tick": bid JSON arrives
+    |     { "bidAmount": 120 }       |  → PlaceBidAsync → may broadcast to ALL sockets
+    |<------- text frame(s)         |  ← same connection can receive many replies
+    |     (auction_update / etc.)    |     (also other tabs get broadcast on other sockets)
+    |                               |
+    |-------- close frame --------->|  or server closes; loop exits
+```
+
+**Contrast with SSE (above):** SSE’s “ticks” are mostly **server timer–driven pushes** (`PeriodicTimer`). WebSocket’s “ticks” here are **mostly server-driven by `ReceiveAsync`** returning when the **client** sends a frame — plus **async broadcasts** that write to peers without a new HTTP round-trip.
 
 ---
 

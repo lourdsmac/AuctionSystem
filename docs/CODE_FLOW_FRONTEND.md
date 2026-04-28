@@ -233,6 +233,17 @@ User       WebSocketPanel (React)     Browser APIs              Backend (summary
  │ sees price ────┤ applyMessage ─ setAuction │                             │
 ```
 
+### WebSocket server “listen loop” vs one-shot HTTP request/response
+
+After **Connect**, each bid is **not** a new `POST /api/...` URL. The server **`ListenLoop`** in `AuctionWebSocketEndpoint` uses **`ReceiveAsync`** in a **`while`** — each wake-up is one **iteration** (like a “tick”) when a **text frame** arrives. Replies are **WebSocket frames** on the same long-lived connection. See **`ARCHITECTURE_OVERVIEW.md`** for the full ASCII contrast with REST and SSE.
+
+```
+  HTTP GET snapshot:   client ----request----> server ----200 JSON----> client (done)
+
+  WebSocket:           client ----Upgrade----> server ----101 + frames---
+                       same connection:  client --text bid--> server --text update--> client (repeat)
+```
+
 ---
 
 ## 6. User clicks “Send bid” — WebSocket only
@@ -273,6 +284,8 @@ User B tab     WebSocketPanel          (same message)              │
      │               │ onmessage ◄─────────│◄──────────────────────┤
      │ sees new $ ───┤ setAuction          │                       │
 ```
+
+
 
 ---
 

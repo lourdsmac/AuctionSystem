@@ -155,6 +155,38 @@ More **message types** and **user-triggered sends** ⇒ more UI logic — aligne
 
 ---
 
+## Diagram: WebSocket listen loop vs HTTP request/response
+
+| Model | Shape in this repo |
+|-------|---------------------|
+| **HTTP request/response** | One logical request → one response body → end of that exchange (e.g. `GET /api/auction`). |
+| **SSE** | One **GET** stays open; **server timer** “ticks” emit `data:` chunks (see `PeriodicTimer` in `GetSse`). |
+| **WebSocket** | After **101 Upgrade**, no more HTTP request lines on that socket. The server runs **`ListenLoop`**: **`while ... ReceiveAsync`** — each successful receive is one **iteration** handling client text (e.g. bid). Replies and broadcasts are **WebSocket frames**, not a second HTTP POST. |
+
+```
+HTTP (snapshot):
+
+  Client                    Server
+    |--- GET /api/auction -->|
+    |<-- 200 JSON ----------|    (typical single round trip)
+
+WebSocket (after connect):
+
+  Client                    Server (ListenLoop)
+    |--- Upgrade /ws ------->|
+    |<- 101 + connected msg -|
+    |
+    |=== same connection =======================================
+    |
+    |--- text: { bid... } --->|  ReceiveAsync returns (one loop step)
+    |<- text: auction_update -|  + other clients may get broadcast on their sockets
+    |=== loop continues until close ============================
+```
+
+Code reference: **`ListenLoop`** in `src/Api/AuctionWebSocketEndpoint.cs` (`ReceiveAsync` in a `while (ws.State == Open)`).
+
+---
+
 ## Summary (interview soundbite)
 
 > “In our demo, **SSE** is a **thin HTTP stream**: timer, snapshot read, SSE framing. **WebSockets** add **upgrade + connection registry**, **scoped service factories per operation**, **receive/decode/validate loops**, **per-client vs broadcast** sends, and a **fan-out notifier** — that’s why the WebSocket path touches more layers and lines of code even though **both** read the same `AuctionItem` state.”

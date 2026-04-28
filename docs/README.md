@@ -203,6 +203,19 @@ Inbound request
                    Map("/ws/auction")  →  AcceptWebSocketAsync → handler loop
 ```
 
+#### E) WebSocket **listen loop** vs one-shot HTTP request/response
+
+After the **101 Upgrade**, the browser no longer issues separate HTTP `POST` lines for each bid. The server **`ListenLoop`** in `AuctionWebSocketEndpoint` blocks in **`ReceiveAsync`** until a **WebSocket text frame** arrives — each wake-up is one loop “step.” Replies (and fan-out to other tabs) are **frames on the same TCP connection** (or sibling connections for other clients), not a new HTTP round-trip per action.
+
+```
+  Classic HTTP (e.g. GET /api/auction):     one request ──► one response ──► connection often idle/closed
+
+  WebSocket (/ws/auction):                   Upgrade ──► same socket kept open
+                                            then:  ReceiveAsync ──► handle bid ──► send/broadcast frames ──► ReceiveAsync …
+```
+
+Full contrast (including **SSE timer ticks** vs **`ReceiveAsync` ticks**): **`ARCHITECTURE_OVERVIEW.md`** → sections *SSE tick loop vs request/response* and *WebSocket listen loop vs request/response*. See also **`SSE_VS_WEBSOCKET_COMPLEXITY.md`** (diagram subsection).
+
 ---
 
 ## How to run (what works today)
