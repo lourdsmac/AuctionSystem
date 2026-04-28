@@ -16,6 +16,8 @@ This document explains **Clean Architecture** as used in real backends, maps it 
 
 **Frontend split:** `frontend/src/App.tsx` — **`SsePanel`** vs **`WebSocketPanel`** (separate components, separate transport).
 
+**Why WebSockets involve more moving parts than SSE here** (registry, receive loop, `IServiceScopeFactory`, broadcast notifier): see **`SSE_VS_WEBSOCKET_COMPLEXITY.md`**.
+
 ---
 
 ## Why structure code at all?

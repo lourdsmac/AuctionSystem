@@ -2,6 +2,8 @@
 
 This document ties **browser behavior**, **SSE (`EventSource`)**, **WebSockets**, optional **axios/fetch** patterns carrying auth & idempotency headers, mapping every layer to observable reality in **`frontend/`** vs theoretical payment flows.
 
+**New to React?** Start with **[`CODE_FLOW_FRONTEND.md`](./CODE_FLOW_FRONTEND.md)** — full **Code Flow** from `index.html` → `main.tsx` → `App` → button handlers → network → backend → UI, with step sequences and diagrams.
+
 ---
 
 ## Navigation: SSE vs WebSocket in this repo
@@ -15,6 +17,8 @@ This document ties **browser behavior**, **SSE (`EventSource`)**, **WebSockets**
 | **Shared state** | Reads via `AuctionService.GetCurrentAsync` | Writes via `AuctionService.PlaceBidAsync` + broadcast |
 
 Everything else in this doc elaborates behavior; use the table above when you only need **file names**.
+
+**Why WebSocket is more complex than SSE in this repo (upgrade, connection manager, scopes, fan-out):** see **`SSE_VS_WEBSOCKET_COMPLEXITY.md`** in the same folder.
 
 ---
 

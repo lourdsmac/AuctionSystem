@@ -51,7 +51,8 @@ Use this table when you’re lost in the tree: **SSE** and **WebSocket** use **d
 
 **Wire-up (see once, remember):** `src/Api/Program.cs` registers CORS, **`UseWebSockets`**, **`MapControllers()`** (SSE lives under the controller), then **`MapAuctionWebSocket()`** (WS route). SSE is **not** registered in `Map` — it’s **`[HttpGet("sse")]`** on `AuctionController`.
 
-Deeper walkthrough: **`FRONTEND_BACKEND_FLOW.md`** and diagrams below in this file.
+Deeper walkthrough: **`FRONTEND_BACKEND_FLOW.md`** and diagrams below in this file.  
+**Complexity (why WS is more involved in *this* repo):** **`SSE_VS_WEBSOCKET_COMPLEXITY.md`**.
 
 ---
 
@@ -59,6 +60,8 @@ Deeper walkthrough: **`FRONTEND_BACKEND_FLOW.md`** and diagrams below in this fi
 
 | Capability | In this repo’s code? | Where to learn |
 |------------|----------------------|----------------|
+| Frontend code flow (`index.html` → React → SSE/WS, **beginners**) | ✅ Yes | **`CODE_FLOW_FRONTEND.md`** |
+| SSE vs WebSocket (complexity, code-grounded) | ✅ Yes | `SSE_VS_WEBSOCKET_COMPLEXITY.md` |
 | Clean Architecture layers | ✅ Yes | `ARCHITECTURE_OVERVIEW.md` |
 | SSE streaming | ✅ Yes | `FRONTEND_BACKEND_FLOW.md`, root `README.md` |
 | WebSocket bidding + broadcast | ✅ Yes | Same |
@@ -390,6 +393,8 @@ Treat them as **what you build next** (or what your next job’s codebase contai
 | Doc | Purpose |
 |-----|---------|
 | **[This README — SSE vs WebSocket map](#where-sse-vs-websocket-is-implemented-navigation)** | **Which files implement SSE vs WebSocket (quick lookup)** |
+| [CODE_FLOW_FRONTEND.md](./CODE_FLOW_FRONTEND.md) | **React bootstrap, Code Flow UI → backend → UI (beginner-friendly)** |
+| [SSE_VS_WEBSOCKET_COMPLEXITY.md](./SSE_VS_WEBSOCKET_COMPLEXITY.md) | **Why WebSocket is more complex than SSE here (code-based comparison)** |
 | [ARCHITECTURE_OVERVIEW.md](./ARCHITECTURE_OVERVIEW.md) | Clean Architecture in this repo and in production |
 | [IDEMPOTENCY_DEEP_DIVE.md](./IDEMPOTENCY_DEEP_DIVE.md) | Idempotency-Key, hashing, duplicate requests |
 | [PAYMENT_FLOW.md](./PAYMENT_FLOW.md) | Payment pipeline and why duplicates cost money |
@@ -408,13 +413,15 @@ Treat them as **what you build next** (or what your next job’s codebase contai
 ## Suggested learning path
 
 1. **[SSE vs WebSocket file map](#where-sse-vs-websocket-is-implemented-navigation)** (this README) — know where code lives.  
-2. `ARCHITECTURE_OVERVIEW.md` — orient in the codebase.  
-3. `FRONTEND_BACKEND_FLOW.md` — SSE + WS in the browser — **this repo**.  
-4. `CORS_DEEP_DIVE.md` — why localhost:5173 → localhost:5088 needs config.  
-5. `DATABASE_DESIGN.md` — tiny real schema vs “payments” textbook schema.  
-6. `IDEMPOTENCY_DEEP_DIVE.md` → `PAYMENT_FLOW.md` → `ERROR_HANDLING_AND_RETRIES.md` — **payments interview block**.  
-7. `AUTHENTICATION_JWT_DEEP_DIVE.md` → `USER_SESSION_FLOW.md` — **identity interview block**.  
-8. `API_HEADERS_AND_SECURITY.md` + `RATE_LIMITING_DEEP_DIVE.md` + `DEBUGGING_AND_OBSERVABILITY.md` — **ops and hardening block**.
+2. **`CODE_FLOW_FRONTEND.md`** — HTML → React mount → clicks → SSE/WebSocket (**start here if new to React**).  
+3. **`SSE_VS_WEBSOCKET_COMPLEXITY.md`** — why WebSocket involves more machinery than SSE **in this repo**.  
+4. `ARCHITECTURE_OVERVIEW.md` — orient in the codebase.  
+5. `FRONTEND_BACKEND_FLOW.md` — SSE + WS in the browser — **this repo**.  
+6. `CORS_DEEP_DIVE.md` — why localhost:5173 → localhost:5088 needs config.  
+7. `DATABASE_DESIGN.md` — tiny real schema vs “payments” textbook schema.  
+8. `IDEMPOTENCY_DEEP_DIVE.md` → `PAYMENT_FLOW.md` → `ERROR_HANDLING_AND_RETRIES.md` — **payments interview block**.  
+9. `AUTHENTICATION_JWT_DEEP_DIVE.md` → `USER_SESSION_FLOW.md` — **identity interview block**.  
+10. `API_HEADERS_AND_SECURITY.md` + `RATE_LIMITING_DEEP_DIVE.md` + `DEBUGGING_AND_OBSERVABILITY.md` — **ops and hardening block**.
 
 ---
 
